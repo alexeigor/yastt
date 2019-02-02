@@ -24,18 +24,36 @@ const args = require('yargs')
             describe: 'audio file name',
             demandOption: false,
             default: ''
+        },
+        'stderr_log_file': {
+            describe: 'stderr log file path',
+            demandOption: false,
+            default: ''
         }
     })
     .argv;
 
-main(args.path, args.token, args.folder_id);
+main(args.path, args.token, args.folder_id, args.stderr_log_file);
 
-function main(audio_file_name, token, folder_id) {
-    let grpc = require('grpc');
-    let fs = require('fs');
+function main(audio_file_name, token, folder_id, stderr_log_file) {
+    var grpc = require('grpc');
+    var fs = require('fs');
     Writable = require('stream').Writable;
     const { pipeline } = require('stream');
     var startTime = Date.now();
+
+    /* mirror stderr to file */
+    if (stderr_log_file != "") {
+        var fn = process.stderr.write;
+        var sttStderrLog = fs.createWriteStream(stderr_log_file)
+
+        function write() {
+            fn.apply(process.stderr, arguments);
+            sttStderrLog.write.apply(sttStderrLog, arguments);
+        }
+
+        process.stderr.write = write;
+    }
 
     var protoLoader = require('@grpc/proto-loader');
     var packageDefinition = protoLoader.loadSync(
@@ -83,10 +101,17 @@ function main(audio_file_name, token, folder_id) {
 
     transformStream.on('finish', () => {
         sttService.end();
-        console.error('All chunks are sent now');
+        console.error("[" + (Date.now() - startTime) + " ms] all chunks are sent now")
     });
 
     var outStream = process.stdout;
+
+    outStream.on('error', function (error) {
+        console.error("output stream error, so exit");
+        console.error("Error code: " + error.code);
+        console.error("Error message: " + error.message);
+        process.exit(1);
+    });
 
     /* --- */
     sttService.on('error', function (error) {
@@ -107,6 +132,11 @@ function main(audio_file_name, token, folder_id) {
     });
 
     var inputStream = (audio_file_name == "") ? process.stdin : fs.createReadStream(audio_file_name);
+
+    inputStream.on('error', function (error) {
+        console.error("Error code: " + error.code);
+        console.error("Error message: " + error.message);
+    });
 
 
     /* do */

@@ -13,7 +13,7 @@ $descriptorspec = array(
 
 $cwd = './';
 $env = array();
-$cmd = "node ./stt.js --folder_id " . $opts['f'] . " --token " . $opts['t'];
+$cmd = "node ./stt.js --folder_id " . $opts['f'] . " --token " . $opts['t'] . " --stderr_log_file ./stt_err.log";
 
 $process = proc_open($cmd, $descriptorspec, $pipes, $cwd, $env);
 if (is_resource($process)) {
@@ -26,19 +26,22 @@ if (is_resource($process)) {
     $status = proc_get_status($process);
     while (!feof($handle) && $status["running"])
     {
-        $buffer = fread($handle, 32000);
+        $buffer = fread($handle, 1024);
 
         echo "send chunk: " . $counter . "\n";
         $counter++;
         $fwritelen = fwrite($pipes[0], $buffer);
+        fflush($pipes[0]);
 
         if ($fwritelen == 0) {
             echo "error during writing";
         }
 
         echo stream_get_contents($pipes[1]);
-        sleep(1);
+        usleep(32000);
         $status = proc_get_status($process);
+
+        // fclose($pipes[1]);
     }
     echo "all data sent\n";
 
