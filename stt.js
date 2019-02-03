@@ -35,26 +35,8 @@ const args = require('yargs')
 
 main(args.path, args.token, args.folder_id, args.stderr_log_file);
 
-function main(audio_file_name, token, folder_id, stderr_log_file) {
+function createSttClient(iam_token, folder_id) {
     var grpc = require('grpc');
-    var fs = require('fs');
-    Writable = require('stream').Writable;
-    const { pipeline } = require('stream');
-    var startTime = Date.now();
-
-    /* mirror stderr to file */
-    if (stderr_log_file != "") {
-        var fn = process.stderr.write;
-        var sttStderrLog = fs.createWriteStream(stderr_log_file)
-
-        function write() {
-            fn.apply(process.stderr, arguments);
-            sttStderrLog.write.apply(sttStderrLog, arguments);
-        }
-
-        process.stderr.write = write;
-    }
-
     var protoLoader = require('@grpc/proto-loader');
     var packageDefinition = protoLoader.loadSync(
         PROTO_PATH,
@@ -67,7 +49,7 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
         });
 
     metadata = new grpc.Metadata();
-    metadata.set('authorization', 'Bearer ' + token);
+    metadata.set('authorization', 'Bearer ' + iam_token);
 
     var sttProto = grpc.loadPackageDefinition(packageDefinition).yandex.cloud.ai.stt.v2;
 
@@ -89,6 +71,30 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
         },
     };
     sttService.write(config);
+
+    return sttService;
+}
+
+function main(audio_file_name, token, folder_id, stderr_log_file) {
+    var fs = require('fs');
+    Writable = require('stream').Writable;
+    const { pipeline } = require('stream');
+    var startTime = Date.now();
+
+    /* mirror stderr to file */
+    if (stderr_log_file != "") {
+        var fn = process.stderr.write;
+        var sttStderrLog = fs.createWriteStream(stderr_log_file)
+
+        function write() {
+            fn.apply(process.stderr, arguments);
+            sttStderrLog.write.apply(sttStderrLog, arguments);
+        }
+
+        process.stderr.write = write;
+    }
+
+    var sttService = createSttClient(token, folder_id);
 
     /* --- */
     var transformStream = Writable();
@@ -127,6 +133,7 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
             outStream.write("Is final: " + response.chunks[0].final + "\n")
         }
     });
+
     sttService.on('end', function() {
         // outStream.close();
     });
@@ -139,9 +146,5 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
     });
 
 
-    /* do */
-    pipeline(
-        inputStream,
-        transformStream
-    )
+    inputStream.pipe(transformStream);
 }
