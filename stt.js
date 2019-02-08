@@ -5,10 +5,18 @@
 	* npm install grpc
 	* npm install @grpc/proto-loader
 	* npm install yargs
+	* npm install sprintf-js
 */
+
+sprintf = require("sprintf-js").sprintf;
 
 const PROTO_PATH = [__dirname + '/stt_service.proto'];
 const FORMAT_PCM = 'LINEAR16_PCM';
+
+function ndate() {
+    var u = new Date();
+    return sprintf("%02s:%02s:%02s.%03s", u.getHours(), u.getMinutes(), u.getSeconds(), u.getMilliseconds());
+}
 
 const args = require('yargs')
     .options({
@@ -70,6 +78,18 @@ function createSttClient(iam_token, folder_id) {
             }
         },
     };
+
+    sttService.on('error', function (error) {
+        console.error("[" + ndate() + "] Yandex error: code " + error.code + " [" + error.message + "]");
+        console.error("[" + ndate() + "] exit");
+        client.close();
+    });
+
+    sttService.on('end', function() {
+        console.error("[" + ndate() + "] sttService ended. closing client.");
+        client.close();
+    });
+
     sttService.write(config);
 
     return sttService;
@@ -79,7 +99,6 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
     var fs = require('fs');
     Writable = require('stream').Writable;
     const { pipeline } = require('stream');
-    var startTime = Date.now();
 
     /* mirror stderr to file */
     if (stderr_log_file != "") {
@@ -100,51 +119,37 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
     var transformStream = Writable();
     transformStream._write = function (chunk, enc, next) {
         // send audio chunks
-        console.error("[" + (Date.now() - startTime) + " ms] send chunk of size " + chunk.length + " bytes")
+        console.error("[" + ndate() + "] send chunk of size " + chunk.length + " bytes")
         sttService.write({audio_content: chunk});
         next()
     };
 
     transformStream.on('finish', () => {
         sttService.end();
-        console.error("[" + (Date.now() - startTime) + " ms] all chunks are sent now")
+        console.error("[" + ndate() + "] all chunks are sent now")
     });
 
     var outStream = process.stdout;
 
     outStream.on('error', function (error) {
-        console.error("output stream error, so exit");
-        console.error("Error code: " + error.code);
-        console.error("Error message: " + error.message);
+        console.error("[" + ndate() + "] output stream error, so exit. Error code: " + error.code + " Error message: " + error.message);
         process.exit(1);
     });
 
     /* --- */
-    sttService.on('error', function (error) {
-        console.error("Error code: " + error.code);
-        console.error("Error message: " + error.message);
-        process.exit(1);
-    });
-
     sttService.on('data', function (response) {
         if (response.chunks.length > 0) {
-            console.error("[" + (Date.now() - startTime) + " ms] received chunk of response")
+            console.error("[" + ndate() + "] received chunk of response")
             outStream.write("Recognized message: " + response.chunks[0].alternatives[0].text + "\n");
             outStream.write("Is final: " + response.chunks[0].final + "\n")
         }
     });
 
-    sttService.on('end', function() {
-        // outStream.close();
-    });
-
     var inputStream = (audio_file_name == "") ? process.stdin : fs.createReadStream(audio_file_name);
 
     inputStream.on('error', function (error) {
-        console.error("Error code: " + error.code);
-        console.error("Error message: " + error.message);
+        console.error("[" + ndate() + "] input stream error, so exit. Error code: " + error.code + " Error message: " + error.message);
     });
-
 
     inputStream.pipe(transformStream);
 }
