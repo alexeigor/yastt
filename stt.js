@@ -80,13 +80,13 @@ function createSttClient(iam_token, folder_id) {
     };
 
     sttService.on('error', function (error) {
-        console.error("[" + ndate() + "] Yandex error: code " + error.code + " [" + error.message + "]");
-        console.error("[" + ndate() + "] exit");
+        console.error("[" + ndate() + "] sttService event: error. Error: code " + error.code + " [" + error.message + "]. Closing client.");
         client.close();
+        process.exit(1);
     });
 
     sttService.on('end', function() {
-        console.error("[" + ndate() + "] sttService ended. closing client.");
+        console.error("[" + ndate() + "] sttService event: end. Closing client.");
         client.close();
     });
 
@@ -120,13 +120,15 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
     transformStream._write = function (chunk, enc, next) {
         // send audio chunks
         console.error("[" + ndate() + "] send chunk of size " + chunk.length + " bytes")
-        sttService.write({audio_content: chunk});
-        next()
+        if (!sttService.write({audio_content: chunk}, next)) {
+            console.error("[" + ndate() + "] sttService.write returned false.");
+        }
+        // next()
     };
 
     transformStream.on('finish', () => {
         sttService.end();
-        console.error("[" + ndate() + "] all chunks are sent now")
+        console.error("[" + ndate() + "] transformStream event: finished. All chunks are sent now.")
     });
 
     var outStream = process.stdout;
@@ -148,7 +150,7 @@ function main(audio_file_name, token, folder_id, stderr_log_file) {
     var inputStream = (audio_file_name == "") ? process.stdin : fs.createReadStream(audio_file_name);
 
     inputStream.on('error', function (error) {
-        console.error("[" + ndate() + "] input stream error, so exit. Error code: " + error.code + " Error message: " + error.message);
+        console.error("[" + ndate() + "] inputStream event: error. Error: code " + error.code + " [" + error.message + "]");
     });
 
     inputStream.pipe(transformStream);
